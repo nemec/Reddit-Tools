@@ -1,6 +1,8 @@
 import json
 import re
 import urllib
+from urllib.parse import urlencode
+from urllib.request import urlopen, Request, urlretrieve
 import os
 import time
 import sys
@@ -9,14 +11,10 @@ import argparse
 
 imgur = r"http://(i\.)?imgur\.com[/\w]+(.\w+)?"
 allpics = r"http://[\w./]+(png|jpg|jpeg|gif)"
+USER_AGENT = "redditimages (v1.1)"
 
 def convert_time(t):
   return calendar.timegm(time.strptime(t, "%m/%d/%Y"))
-
-class GWAction(argparse.Action):
-  def __call__(self, parser, namespace, values, option_string = None):
-    setattr(namespace, 'archive', True)
-    setattr(namespace, 'subreddit', 'gonewild')
 
 parser = argparse.ArgumentParser(description="Download images from a user's "
                                              "Reddit history.")
@@ -36,8 +34,6 @@ parser.add_argument('-e', action="store", dest="end_time", type=convert_time,
 parser.add_argument('-s', action="store", dest="subreddit")
 parser.add_argument('-q', action="store_true", dest="quiet", help="Disables "
                 "verbose mode - nothing will be printed to the screen.")
-parser.add_argument('--gw', action=GWAction, nargs=0, help="Enables GoneWild "
-                "mode - equivalent to '-as GoneWild'")
 parser.add_argument('user', action="store")
 
 
@@ -45,11 +41,12 @@ args = parser.parse_args()
 
 baseurl = "http://www.reddit.com/user/%s/.json" % args.user
 
-results = urllib.urlopen(baseurl).read()
+req = Request(baseurl, headers={"User-Agent": USER_AGENT})
+results = urlopen(req).read()
 try:
   j = json.loads(results)
 except:
-  print "Error parsing response:", results
+  print("Error parsing response:", results)
   sys.exit(-1)
 
 page = 1
@@ -88,14 +85,14 @@ def get_images_from_data(data):
                 permalink = ("http://reddit.com/r/%s/comments/%s/%s" %
                                     (node['subreddit'], linkid , title))
                 archive_set.add(permalink)
-            except Exception, e:
+            except Exception as e:
               if not args.quiet:
-                print e
+                print(e)
           links.append(link)
   return links
 
 if not args.quiet:
-  print "Loading page %s" % page
+  print("Loading page",  page)
 links = get_images_from_data(j['data'])
 
 try:
@@ -103,21 +100,22 @@ try:
     time.sleep(2)# Reddit humbly requests a 2 second rate limit - please honor it.
     page+=1
     if not args.quiet:
-      print "Loading page %s" % page
-    query = urllib.urlencode({'after' : j['data']['after']})
+      print("Loading page", page)
+    query = urlencode({'after' : j['data']['after']})
     newurl = baseurl+"?"+query
-    results = urllib.urlopen(newurl)
+    req = Request(newurl, headers={"User-Agent": USER_AGENT})
+    results = urlopen(req)
     try:
       j = json.loads(results.read())
       links.extend(get_images_from_data(j['data']))
-    except (ValueError, IOError), e:
+    except (ValueError, IOError) as e:
       if not args.quiet:
-        print e
+        print(e)
 except KeyboardInterrupt:
   pass
 
 if not args.quiet and len(links) == 0:
-  print "No links found."
+  print("No links found.")
 else:
   while len(links) > 0:
     if not os.path.exists(args.user):
@@ -129,11 +127,11 @@ else:
         f.write("%s\n"%link)
       f.close()
       if not args.quiet:
-        print "Archive written."
+        print("Archive written.")
 
     linksleft = len(links)
     if not args.quiet:
-      print "Found %s links. Downloading..." % linksleft
+      print("Found %s links. Downloading..." % linksleft)
     failed = []
 
     for url in links:
@@ -141,24 +139,24 @@ else:
       
       if not os.path.exists(filepath):
         if not args.quiet:
-          print "Downloading %s (%s remaining)..." % (filepath, linksleft)
+          print("Downloading %s (%s remaining)..." % (filepath, linksleft))
         try:
-          urllib.urlretrieve(url, filepath)
+          urlretrieve(url, filepath)
         except:
           failed.append(url)
       else:
         if not args.quiet:
-          print "%s exists, skipping." % filepath
+          print("%s exists, skipping." % filepath)
       linksleft-=1
 
     links = []
 
     if not args.quiet:
       if len(failed) > 0:
-        print "URLs failed:"
+        print("URLs failed:")
         for x in failed:
-          print x
-        cont = raw_input("Retry? y/n [n]: ")
+          print(x)
+        cont = input("Retry? y/n [n]: ")
         if cont.lower() == 'y':
           links = failed
     else:
